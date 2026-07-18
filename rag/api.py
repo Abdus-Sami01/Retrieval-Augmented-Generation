@@ -82,7 +82,7 @@ def build_app(
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(await upload.read())
                 tmp_path = tmp.name
-            result = ingest_pipeline.ingest_file(tmp_path)
+            result = ingest_pipeline.ingest_file(tmp_path, display_name=upload.filename)
             results.append(
                 IngestFileResult(
                     filename=upload.filename,

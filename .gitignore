@@ -4,9 +4,8 @@ __pycache__/
 .venv/
 venv/
 .env
-data/*.faiss
-data/*.sqlite
-data/*.db
+data/
 *.egg-info/
 .coverage
 htmlcov/
+*.log

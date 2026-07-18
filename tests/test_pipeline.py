@@ -70,6 +70,22 @@ def test_ingest_file_success(tmp_path):
     assert store.count() == 1
 
 
+def test_ingest_file_uses_display_name_for_citations(tmp_path):
+    # Regression: /ingest saves uploads to a temp path before processing; without a
+    # display_name override, citations would point at a throwaway temp filename
+    # instead of the name the user actually uploaded.
+    f = tmp_path / "tmpXYZ123.txt"
+    f.write_text("original content the user uploaded as report.txt", encoding="utf-8")
+    store = FakeStore()
+    pipeline = IngestPipeline(
+        chunker=DocumentAwareChunker(chunk_size_tokens=400, overlap_tokens=60),
+        embedder=FakeEmbedder(),
+        store=store,
+    )
+    pipeline.ingest_file(str(f), display_name="report.txt")
+    assert store.chunks[0].source_path == "report.txt"
+
+
 def test_ingest_file_failure_on_missing_file(tmp_path):
     store = FakeStore()
     pipeline = IngestPipeline(

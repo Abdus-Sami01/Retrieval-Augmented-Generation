@@ -25,11 +25,14 @@ class IngestPipeline:
         self.embedder = embedder
         self.store = store
 
-    def ingest_file(self, path: str) -> IngestResult:
+    def ingest_file(self, path: str, display_name: str | None = None) -> IngestResult:
         try:
             document = load_path(path)
         except Exception as exc:
             return IngestResult(path=path, ok=False, error=str(exc))
+
+        if display_name:
+            document.source_path = display_name
 
         chunks = self.chunker.chunk(document)
         if not chunks:

@@ -1,6 +1,7 @@
 import json
 import pathlib
 import sqlite3
+import threading
 
 import faiss
 import numpy as np
@@ -31,8 +32,12 @@ class FaissVectorStore(VectorStore):
         self.index_path = self.data_dir / "index.faiss"
         self.db_path = self.data_dir / "chunks.sqlite"
 
+        self._lock = threading.Lock()
         self._index = faiss.IndexFlatIP(dimension)
-        self._conn = sqlite3.connect(str(self.db_path))
+        # check_same_thread=False: FastAPI runs sync endpoints in a threadpool, so this
+        # connection is opened on the app's main thread but queried from worker threads.
+        # self._lock serializes all access, so this is safe.
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.execute(_SCHEMA)
         self._conn.commit()
 
@@ -48,73 +53,78 @@ class FaissVectorStore(VectorStore):
                 f"vector dimension {matrix.shape[1]} does not match store dimension {self.dimension}"
             )
 
-        start_row = self._index.ntotal
-        self._index.add(matrix)
+        with self._lock:
+            start_row = self._index.ntotal
+            self._index.add(matrix)
 
-        rows = []
-        for offset, chunk in enumerate(chunks):
-            rows.append(
-                (
-                    start_row + offset,
-                    chunk.chunk_id,
-                    chunk.doc_id,
-                    chunk.chunk_index,
-                    chunk.text,
-                    chunk.source_path,
-                    chunk.section_path,
-                    chunk.char_start,
-                    chunk.char_end,
+            rows = []
+            for offset, chunk in enumerate(chunks):
+                rows.append(
+                    (
+                        start_row + offset,
+                        chunk.chunk_id,
+                        chunk.doc_id,
+                        chunk.chunk_index,
+                        chunk.text,
+                        chunk.source_path,
+                        chunk.section_path,
+                        chunk.char_start,
+                        chunk.char_end,
+                    )
                 )
+            self._conn.executemany(
+                """INSERT OR REPLACE INTO chunks
+                   (row_id, chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
             )
-        self._conn.executemany(
-            """INSERT OR REPLACE INTO chunks
-               (row_id, chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            rows,
-        )
-        self._conn.commit()
+            self._conn.commit()
 
     def search(self, query_vector: list[float], top_k: int) -> list[RetrievedChunk]:
-        if self._index.ntotal == 0:
-            return []
-        query = np.array([query_vector], dtype="float32")
-        scores, indices = self._index.search(query, min(top_k, self._index.ntotal))
+        with self._lock:
+            if self._index.ntotal == 0:
+                return []
+            query = np.array([query_vector], dtype="float32")
+            scores, indices = self._index.search(query, min(top_k, self._index.ntotal))
 
-        results: list[RetrievedChunk] = []
-        for score, row_id in zip(scores[0], indices[0]):
-            if row_id < 0:
-                continue
-            cursor = self._conn.execute(
-                "SELECT chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end "
-                "FROM chunks WHERE row_id = ?",
-                (int(row_id),),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                continue
-            _, doc_id, chunk_index, text, source_path, section_path, char_start, char_end = row
-            chunk = Chunk(
-                text=text,
-                doc_id=doc_id,
-                chunk_index=chunk_index,
-                source_path=source_path,
-                section_path=section_path,
-                char_start=char_start,
-                char_end=char_end,
-            )
-            results.append(RetrievedChunk(chunk=chunk, score=float(score)))
-        return results
+            results: list[RetrievedChunk] = []
+            for score, row_id in zip(scores[0], indices[0]):
+                if row_id < 0:
+                    continue
+                cursor = self._conn.execute(
+                    "SELECT chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end "
+                    "FROM chunks WHERE row_id = ?",
+                    (int(row_id),),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    continue
+                _, doc_id, chunk_index, text, source_path, section_path, char_start, char_end = row
+                chunk = Chunk(
+                    text=text,
+                    doc_id=doc_id,
+                    chunk_index=chunk_index,
+                    source_path=source_path,
+                    section_path=section_path,
+                    char_start=char_start,
+                    char_end=char_end,
+                )
+                results.append(RetrievedChunk(chunk=chunk, score=float(score)))
+            return results
 
     def count(self) -> int:
-        return self._index.ntotal
+        with self._lock:
+            return self._index.ntotal
 
     def persist(self) -> None:
-        faiss.write_index(self._index, str(self.index_path))
-        meta = {"dimension": self.dimension, "count": self._index.ntotal}
-        (self.data_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        with self._lock:
+            faiss.write_index(self._index, str(self.index_path))
+            meta = {"dimension": self.dimension, "count": self._index.ntotal}
+            (self.data_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
     def load(self) -> None:
-        if not self.index_path.exists():
-            return
-        self._index = faiss.read_index(str(self.index_path))
-        self.dimension = self._index.d
+        with self._lock:
+            if not self.index_path.exists():
+                return
+            self._index = faiss.read_index(str(self.index_path))
+            self.dimension = self._index.d

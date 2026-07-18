@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from rag.models import Chunk
 from rag.vectorstore import FaissVectorStore
 
@@ -62,4 +64,18 @@ def test_persist_and_reload_preserves_search(tmp_path):
     reloaded.load()
     assert reloaded.count() == 2
     results = reloaded.search([1.0, 0.0, 0.0], top_k=1)
+    assert results[0].chunk.chunk_index == 0
+
+
+def test_search_works_from_a_different_thread_than_construction(tmp_path):
+    # Regression: FastAPI runs sync endpoints in a threadpool, so the store is built
+    # on the app's main thread but queried from worker threads. A sqlite3 connection
+    # opened with default check_same_thread=True raises ProgrammingError in that case.
+    store = FaissVectorStore(dimension=3, data_dir=str(tmp_path))
+    store.add([_chunk(0)], [[1.0, 0.0, 0.0]])
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        results = pool.submit(store.search, [1.0, 0.0, 0.0], 1).result()
+
+    assert len(results) == 1
     assert results[0].chunk.chunk_index == 0
