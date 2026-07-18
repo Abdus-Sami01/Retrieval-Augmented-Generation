@@ -19,9 +19,22 @@ CREATE TABLE IF NOT EXISTS chunks (
     source_path TEXT NOT NULL,
     section_path TEXT,
     char_start INTEGER NOT NULL,
-    char_end INTEGER NOT NULL
+    char_end INTEGER NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]'
 );
 """
+
+
+def _row_passes_filters(source_path: str, tags: list[str], filters: dict | None) -> bool:
+    if not filters:
+        return True
+    wanted_source = filters.get("source_path")
+    if wanted_source and wanted_source not in source_path:
+        return False
+    wanted_tags = filters.get("tags")
+    if wanted_tags and not (set(wanted_tags) & set(tags)):
+        return False
+    return True
 
 
 class FaissVectorStore(VectorStore):
@@ -70,36 +83,46 @@ class FaissVectorStore(VectorStore):
                         chunk.section_path,
                         chunk.char_start,
                         chunk.char_end,
+                        json.dumps(chunk.tags),
                     )
                 )
             self._conn.executemany(
                 """INSERT OR REPLACE INTO chunks
-                   (row_id, chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (row_id, chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end, tags)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 rows,
             )
             self._conn.commit()
 
-    def search(self, query_vector: list[float], top_k: int) -> list[RetrievedChunk]:
+    def search(
+        self, query_vector: list[float], top_k: int, filters: dict | None = None
+    ) -> list[RetrievedChunk]:
         with self._lock:
             if self._index.ntotal == 0:
                 return []
             query = np.array([query_vector], dtype="float32")
-            scores, indices = self._index.search(query, min(top_k, self._index.ntotal))
+            # Filters are applied after FAISS returns nearest neighbors (FAISS itself has no
+            # metadata awareness), so fetch every vector when a filter is active to avoid
+            # silently missing matches that fall outside an unfiltered top_k window.
+            fetch_k = self._index.ntotal if filters else min(top_k, self._index.ntotal)
+            scores, indices = self._index.search(query, fetch_k)
 
             results: list[RetrievedChunk] = []
             for score, row_id in zip(scores[0], indices[0]):
                 if row_id < 0:
                     continue
                 cursor = self._conn.execute(
-                    "SELECT chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end "
+                    "SELECT chunk_id, doc_id, chunk_index, text, source_path, section_path, char_start, char_end, tags "
                     "FROM chunks WHERE row_id = ?",
                     (int(row_id),),
                 )
                 row = cursor.fetchone()
                 if row is None:
                     continue
-                _, doc_id, chunk_index, text, source_path, section_path, char_start, char_end = row
+                _, doc_id, chunk_index, text, source_path, section_path, char_start, char_end, tags_json = row
+                tags = json.loads(tags_json)
+                if not _row_passes_filters(source_path, tags, filters):
+                    continue
                 chunk = Chunk(
                     text=text,
                     doc_id=doc_id,
@@ -108,8 +131,11 @@ class FaissVectorStore(VectorStore):
                     section_path=section_path,
                     char_start=char_start,
                     char_end=char_end,
+                    tags=tags,
                 )
                 results.append(RetrievedChunk(chunk=chunk, score=float(score)))
+                if len(results) >= top_k:
+                    break
             return results
 
     def count(self) -> int:

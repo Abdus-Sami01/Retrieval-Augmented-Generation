@@ -67,3 +67,26 @@ def test_query_endpoint_returns_grounded_answer():
     body = resp.json()
     assert body["sufficient_context"] is True
     assert len(body["citations"]) >= 1
+
+
+def test_ingest_endpoint_attaches_tags():
+    client, store = _client()
+    client.post(
+        "/ingest",
+        files=[("files", ("note.txt", b"widgets are small testing devices.", "text/plain"))],
+        data={"tags": "legal, 2026"},
+    )
+    assert store.chunks[0].tags == ["legal", "2026"]
+
+
+def test_query_endpoint_applies_tags_filter():
+    client, store = _client()
+    client.post(
+        "/ingest",
+        files=[("files", ("note.txt", b"widgets are small testing devices.", "text/plain"))],
+        data={"tags": "engineering"},
+    )
+    resp = client.post("/query", json={"question": "what are widgets?", "tags_filter": ["legal"]})
+    body = resp.json()
+    assert body["sufficient_context"] is False
+    assert body["citations"] == []

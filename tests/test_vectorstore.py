@@ -4,15 +4,16 @@ from rag.models import Chunk
 from rag.vectorstore import FaissVectorStore
 
 
-def _chunk(idx: int, doc_id: str = "d1") -> Chunk:
+def _chunk(idx: int, doc_id: str = "d1", source_path: str = "a.txt", tags: list[str] | None = None) -> Chunk:
     return Chunk(
         text=f"chunk text {idx}",
         doc_id=doc_id,
         chunk_index=idx,
-        source_path="a.txt",
+        source_path=source_path,
         section_path=None,
         char_start=0,
         char_end=10,
+        tags=tags or [],
     )
 
 
@@ -65,6 +66,45 @@ def test_persist_and_reload_preserves_search(tmp_path):
     assert reloaded.count() == 2
     results = reloaded.search([1.0, 0.0, 0.0], top_k=1)
     assert results[0].chunk.chunk_index == 0
+
+
+def test_persist_and_reload_preserves_tags(tmp_path):
+    store = FaissVectorStore(dimension=3, data_dir=str(tmp_path))
+    store.add([_chunk(0, tags=["policy", "2026"])], [[1.0, 0.0, 0.0]])
+    store.persist()
+
+    reloaded = FaissVectorStore(dimension=3, data_dir=str(tmp_path))
+    reloaded.load()
+    results = reloaded.search([1.0, 0.0, 0.0], top_k=1)
+    assert results[0].chunk.tags == ["policy", "2026"]
+
+
+def test_search_filters_by_source_path_substring(tmp_path):
+    store = FaissVectorStore(dimension=3, data_dir=str(tmp_path))
+    store.add(
+        [_chunk(0, source_path="docs/policy.md"), _chunk(1, source_path="docs/other.md")],
+        [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+    )
+    results = store.search([1.0, 0.0, 0.0], top_k=5, filters={"source_path": "policy"})
+    assert len(results) == 1
+    assert results[0].chunk.source_path == "docs/policy.md"
+
+
+def test_search_filters_by_tags_any_match(tmp_path):
+    store = FaissVectorStore(dimension=3, data_dir=str(tmp_path))
+    store.add(
+        [_chunk(0, tags=["legal"]), _chunk(1, tags=["engineering"]), _chunk(2, tags=["legal", "2026"])],
+        [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+    )
+    results = store.search([1.0, 0.0, 0.0], top_k=5, filters={"tags": ["legal"]})
+    assert {r.chunk.chunk_index for r in results} == {0, 2}
+
+
+def test_search_filters_returning_no_matches_gives_empty_list(tmp_path):
+    store = FaissVectorStore(dimension=3, data_dir=str(tmp_path))
+    store.add([_chunk(0, tags=["engineering"])], [[1.0, 0.0, 0.0]])
+    results = store.search([1.0, 0.0, 0.0], top_k=5, filters={"tags": ["legal"]})
+    assert results == []
 
 
 def test_search_works_from_a_different_thread_than_construction(tmp_path):

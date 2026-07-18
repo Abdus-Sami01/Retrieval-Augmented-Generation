@@ -1,7 +1,7 @@
 import pathlib
 import tempfile
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from rag.chunking import DocumentAwareChunker
@@ -14,6 +14,8 @@ from rag.vectorstore.faiss_store import FaissVectorStore
 
 class QueryRequest(BaseModel):
     question: str
+    source_path_filter: str | None = None
+    tags_filter: list[str] | None = None
 
 
 class CitationOut(BaseModel):
@@ -75,14 +77,15 @@ def build_app(
         return {"status": "ok", "indexed_chunks": store.count()}
 
     @app.post("/ingest", response_model=IngestResponse)
-    async def ingest(files: list[UploadFile]):
+    async def ingest(files: list[UploadFile], tags: str = Form(default="")):
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] or None
         results = []
         for upload in files:
             suffix = pathlib.Path(upload.filename).suffix
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(await upload.read())
                 tmp_path = tmp.name
-            result = ingest_pipeline.ingest_file(tmp_path, display_name=upload.filename)
+            result = ingest_pipeline.ingest_file(tmp_path, display_name=upload.filename, tags=tag_list)
             results.append(
                 IngestFileResult(
                     filename=upload.filename,
@@ -98,7 +101,12 @@ def build_app(
     def query(request: QueryRequest):
         if not request.question.strip():
             raise HTTPException(status_code=400, detail="question must not be empty")
-        answer = query_pipeline.answer(request.question)
+        filters = {}
+        if request.source_path_filter:
+            filters["source_path"] = request.source_path_filter
+        if request.tags_filter:
+            filters["tags"] = request.tags_filter
+        answer = query_pipeline.answer(request.question, filters=filters or None)
         return QueryResponse(
             answer=answer.text,
             sufficient_context=answer.sufficient_context,

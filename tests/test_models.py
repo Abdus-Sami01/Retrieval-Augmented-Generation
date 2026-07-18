@@ -28,6 +28,21 @@ def test_chunk_holds_text_and_provenance():
     )
     assert chunk.text == "hello"
     assert chunk.chunk_id == f"{doc.doc_id}::0"
+    assert chunk.tags == []
+
+
+def test_chunk_accepts_explicit_tags():
+    chunk = Chunk(
+        text="hello",
+        doc_id="d1",
+        chunk_index=0,
+        source_path="a.txt",
+        section_path=None,
+        char_start=0,
+        char_end=5,
+        tags=["policy", "2026"],
+    )
+    assert chunk.tags == ["policy", "2026"]
 
 
 def test_retrieved_chunk_wraps_chunk_with_score():

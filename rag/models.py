@@ -28,6 +28,7 @@ class Chunk:
     section_path: str | None
     char_start: int
     char_end: int
+    tags: list[str] = field(default_factory=list)
 
     @property
     def chunk_id(self) -> str:

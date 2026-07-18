@@ -29,8 +29,18 @@ class FakeStore(VectorStore):
         self.chunks.extend(chunks)
         self.vectors.extend(vectors)
 
-    def search(self, query_vector, top_k):
-        return [RetrievedChunk(chunk=c, score=0.9) for c in self.chunks[:top_k]]
+    def search(self, query_vector, top_k, filters=None):
+        candidates = self.chunks
+        if filters:
+            wanted_source = filters.get("source_path")
+            wanted_tags = filters.get("tags")
+            candidates = [
+                c
+                for c in candidates
+                if (not wanted_source or wanted_source in c.source_path)
+                and (not wanted_tags or set(wanted_tags) & set(c.tags))
+            ]
+        return [RetrievedChunk(chunk=c, score=0.9) for c in candidates[:top_k]]
 
     def count(self):
         return len(self.chunks)
@@ -43,7 +53,7 @@ class FakeStore(VectorStore):
 
 
 class EmptyStore(FakeStore):
-    def search(self, query_vector, top_k):
+    def search(self, query_vector, top_k, filters=None):
         return []
 
 
@@ -68,6 +78,45 @@ def test_ingest_file_success(tmp_path):
     assert result.ok
     assert result.chunks_added == 1
     assert store.count() == 1
+
+
+def test_ingest_file_attaches_tags_to_every_chunk(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello world, this is a test document with enough content.", encoding="utf-8")
+    store = FakeStore()
+    pipeline = IngestPipeline(
+        chunker=DocumentAwareChunker(chunk_size_tokens=400, overlap_tokens=60),
+        embedder=FakeEmbedder(),
+        store=store,
+    )
+    pipeline.ingest_file(str(f), tags=["legal", "2026"])
+    assert store.chunks[0].tags == ["legal", "2026"]
+
+
+def test_query_answer_passes_filters_through_to_store(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("widgets are small mechanical devices used in testing.", encoding="utf-8")
+    store = FakeStore()
+    ingest = IngestPipeline(
+        chunker=DocumentAwareChunker(chunk_size_tokens=400, overlap_tokens=60),
+        embedder=FakeEmbedder(),
+        store=store,
+    )
+    ingest.ingest_file(str(f))
+
+    received_filters = {}
+
+    original_search = store.search
+
+    def spying_search(query_vector, top_k, filters=None):
+        received_filters["value"] = filters
+        return original_search(query_vector, top_k, filters)
+
+    store.search = spying_search
+
+    query = QueryPipeline(embedder=FakeEmbedder(), store=store, llm=FakeLLM("Widgets are devices [1]."), min_score=0.35)
+    query.answer("what are widgets?", filters={"tags": ["legal"]})
+    assert received_filters["value"] == {"tags": ["legal"]}
 
 
 def test_ingest_file_uses_display_name_for_citations(tmp_path):

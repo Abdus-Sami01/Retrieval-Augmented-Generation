@@ -9,7 +9,10 @@ class VectorStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def search(self, query_vector: list[float], top_k: int) -> list[RetrievedChunk]:
+    def search(
+        self, query_vector: list[float], top_k: int, filters: dict | None = None
+    ) -> list[RetrievedChunk]:
+        """filters recognized keys: 'source_path' (substring match), 'tags' (any-of match)."""
         raise NotImplementedError
 
     @abstractmethod

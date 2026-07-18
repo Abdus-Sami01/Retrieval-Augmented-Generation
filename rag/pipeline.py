@@ -25,7 +25,9 @@ class IngestPipeline:
         self.embedder = embedder
         self.store = store
 
-    def ingest_file(self, path: str, display_name: str | None = None) -> IngestResult:
+    def ingest_file(
+        self, path: str, display_name: str | None = None, tags: list[str] | None = None
+    ) -> IngestResult:
         try:
             document = load_path(path)
         except Exception as exc:
@@ -38,12 +40,16 @@ class IngestPipeline:
         if not chunks:
             return IngestResult(path=path, ok=False, error="no chunks produced")
 
+        if tags:
+            for chunk in chunks:
+                chunk.tags = list(tags)
+
         vectors = self.embedder.embed_documents([c.text for c in chunks])
         self.store.add(chunks, vectors)
         return IngestResult(path=path, ok=True, chunks_added=len(chunks))
 
-    def ingest_files(self, paths: list[str]) -> list[IngestResult]:
-        results = [self.ingest_file(p) for p in paths]
+    def ingest_files(self, paths: list[str], tags: list[str] | None = None) -> list[IngestResult]:
+        results = [self.ingest_file(p, tags=tags) for p in paths]
         self.store.persist()
         return results
 
@@ -63,9 +69,9 @@ class QueryPipeline:
         self.top_k = top_k
         self.min_score = min_score
 
-    def answer(self, question: str) -> Answer:
+    def answer(self, question: str, filters: dict | None = None) -> Answer:
         query_vector = self.embedder.embed_query(question)
-        retrieved = self.store.search(query_vector, top_k=self.top_k)
+        retrieved = self.store.search(query_vector, top_k=self.top_k, filters=filters)
         sufficient = [r for r in retrieved if r.score >= self.min_score]
 
         if not sufficient:
