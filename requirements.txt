@@ -5,6 +5,7 @@ pydantic-settings>=2.6
 sentence-transformers>=3.2
 faiss-cpu>=1.9
 rank-bm25>=0.2
+# CrossEncoder ships in sentence-transformers already (no separate package needed)
 pypdf>=5.1
 tiktoken>=0.8
 groq>=0.13
