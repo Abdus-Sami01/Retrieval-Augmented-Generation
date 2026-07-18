@@ -1,6 +1,6 @@
 # rag-platform
 
-Production-grade RAG core (Phase 1): ingest docs -> chunk -> embed -> retrieve -> generate a grounded, cited answer. Refuses to answer when retrieval is insufficient instead of hallucinating.
+Production-grade RAG core: ingest docs -> chunk -> embed -> retrieve -> generate a grounded, cited answer. Refuses to answer when retrieval is insufficient instead of hallucinating.
 
 Every swappable part (embedder, vector store, LLM) sits behind an ABC in `rag/*/base.py`. Swap providers by writing one new adapter class; pipeline code (`rag/pipeline.py`) never changes.
 
@@ -56,6 +56,6 @@ If no retrieved chunk clears `RETRIEVAL_MIN_SCORE`, or the LLM itself signals `N
 
 ## Scope
 
-This is Phase 1 (core RAG) of a larger roadmap. Hybrid/reranking retrieval, production hardening (Docker, rate limiting, caching), a dedicated eval harness, and agentic/multi-hop retrieval are out of scope here and land as later, separate builds in this repo.
+This is the core ingest/retrieve/generate pipeline. Hybrid/reranking retrieval, production hardening (Docker, rate limiting, caching), a dedicated eval harness, and agentic/multi-hop retrieval are out of scope here and land as later, separate builds in this repo.
 
 Two related repos in this workspace cover eval/safety concerns this repo doesn't: `../rag-faithfulness-harness` (NLI-based faithfulness scoring) and `../retrieval-verification-gate` (sufficiency-gated retrieval). This repo is the general-purpose pipeline; those are narrow research artifacts.

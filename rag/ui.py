@@ -53,7 +53,7 @@ def ask_question(question: str, history: list) -> tuple[str, list]:
 
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="RAG Platform") as demo:
-        gr.Markdown("# RAG Platform - Phase 1 Core RAG")
+        gr.Markdown("# RAG Platform")
         with gr.Tab("Ingest"):
             file_input = gr.File(file_count="multiple", type="filepath", label="Upload .txt / .md / .pdf")
             ingest_btn = gr.Button("Ingest")
