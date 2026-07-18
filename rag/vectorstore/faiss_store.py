@@ -6,6 +6,7 @@ import threading
 import faiss
 import numpy as np
 
+from rag.filters import passes_filters
 from rag.models import Chunk, RetrievedChunk
 from rag.vectorstore.base import VectorStore
 
@@ -25,16 +26,6 @@ CREATE TABLE IF NOT EXISTS chunks (
 """
 
 
-def _row_passes_filters(source_path: str, tags: list[str], filters: dict | None) -> bool:
-    if not filters:
-        return True
-    wanted_source = filters.get("source_path")
-    if wanted_source and wanted_source not in source_path:
-        return False
-    wanted_tags = filters.get("tags")
-    if wanted_tags and not (set(wanted_tags) & set(tags)):
-        return False
-    return True
 
 
 class FaissVectorStore(VectorStore):
@@ -121,7 +112,7 @@ class FaissVectorStore(VectorStore):
                     continue
                 _, doc_id, chunk_index, text, source_path, section_path, char_start, char_end, tags_json = row
                 tags = json.loads(tags_json)
-                if not _row_passes_filters(source_path, tags, filters):
+                if not passes_filters(source_path, tags, filters):
                     continue
                 chunk = Chunk(
                     text=text,
