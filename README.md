@@ -37,6 +37,16 @@ curl -X POST http://127.0.0.1:8000/query -H "Content-Type: application/json" \
   -d '{"question": "What does the faithfulness harness check?"}'
 ```
 
+### Docker
+
+```bash
+docker compose up --build   # API on :8000, Gradio UI on :7860, index persisted in a named volume
+```
+
+Reads config from `.env` (same file as local dev - `GROQ_API_KEY` required). The UI container talks to the API container via `RAG_API_BASE_URL=http://api:8000`, set in `docker-compose.yml`.
+
+Note: this Dockerfile/compose setup was authored and statically checked (YAML validity, path/dependency review) but not build-and-run verified - no Docker daemon was available in the environment this was built in. Run `docker compose up --build` and confirm `/health` returns 200 before relying on it.
+
 ## Test
 
 ```bash
@@ -55,8 +65,17 @@ Chunking is document-aware: markdown headers become `section_path` boundaries, p
 
 If no retrieved chunk clears `RETRIEVAL_MIN_SCORE`, or the LLM itself signals `NOT_FOUND_IN_CONTEXT`, the pipeline returns an explicit "not enough information" answer with zero citations instead of generating anyway.
 
+## Production hardening
+
+- Structured JSON logs with per-request latency (`rag/observability.py`) for `/ingest` and `/query`.
+- Per-client token-bucket rate limiting (`rag/rate_limit.py`), 429 on exceeded, default 60 req/min.
+- Opt-in TTL query cache (`rag/cache.py`) keyed on question+filters.
+- Token-budget cap on retrieved context before generation (`rag/generation/token_budget.py`), default 6000 tokens.
+- Opt-in PII redaction (email/SSN/phone) at ingest time (`rag/pii.py`).
+- Dockerfile + docker-compose for API + UI.
+
 ## Scope
 
-This is the core ingest/retrieve/generate pipeline. Hybrid/reranking retrieval, production hardening (Docker, rate limiting, caching), a dedicated eval harness, and agentic/multi-hop retrieval are out of scope here and land as later, separate builds in this repo.
+This is the core ingest/retrieve/generate pipeline plus retrieval-quality and hardening layers. A dedicated eval harness and agentic/multi-hop retrieval are out of scope here and land as later, separate builds in this repo.
 
 Two related repos in this workspace cover eval/safety concerns this repo doesn't: `../rag-faithfulness-harness` (NLI-based faithfulness scoring) and `../retrieval-verification-gate` (sufficiency-gated retrieval). This repo is the general-purpose pipeline; those are narrow research artifacts.
