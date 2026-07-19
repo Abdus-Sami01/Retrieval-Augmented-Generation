@@ -1,3 +1,4 @@
+import logging
 import pathlib
 import tempfile
 
@@ -8,12 +9,15 @@ from rag.chunking import DocumentAwareChunker
 from rag.config import Settings
 from rag.embedding.sentence_transformer_embedder import SentenceTransformerEmbedder
 from rag.generation.groq_client import GroqClient
+from rag.observability import log_duration, setup_logging
 from rag.pipeline import IngestPipeline, QueryPipeline
 from rag.retrieval.cross_encoder_reranker import CrossEncoderReranker
 from rag.retrieval.hybrid import HybridRetriever
 from rag.retrieval.keyword_index import KeywordIndex
 from rag.retrieval.query_rewriter import QueryRewriter
 from rag.vectorstore.faiss_store import FaissVectorStore
+
+logger = logging.getLogger("rag.api")
 
 
 class QueryRequest(BaseModel):
@@ -55,6 +59,7 @@ def build_app(
     """Assemble the FastAPI app. Pass ingest_pipeline/query_pipeline/store to inject
     fakes in tests and skip loading real embedding/LLM models."""
     settings = settings or Settings()
+    setup_logging()
 
     if ingest_pipeline is None or query_pipeline is None or store is None:
         embedder = SentenceTransformerEmbedder(model_name=settings.embedding_model)
@@ -98,35 +103,41 @@ def build_app(
 
     @app.post("/ingest", response_model=IngestResponse)
     async def ingest(files: list[UploadFile], tags: str = Form(default="")):
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()] or None
-        results = []
-        for upload in files:
-            suffix = pathlib.Path(upload.filename).suffix
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(await upload.read())
-                tmp_path = tmp.name
-            result = ingest_pipeline.ingest_file(tmp_path, display_name=upload.filename, tags=tag_list)
-            results.append(
-                IngestFileResult(
-                    filename=upload.filename,
-                    ok=result.ok,
-                    chunks_added=result.chunks_added,
-                    error=result.error,
+        with log_duration(logger, "ingest", file_count=len(files)) as ctx:
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()] or None
+            results = []
+            for upload in files:
+                suffix = pathlib.Path(upload.filename).suffix
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(await upload.read())
+                    tmp_path = tmp.name
+                result = ingest_pipeline.ingest_file(tmp_path, display_name=upload.filename, tags=tag_list)
+                results.append(
+                    IngestFileResult(
+                        filename=upload.filename,
+                        ok=result.ok,
+                        chunks_added=result.chunks_added,
+                        error=result.error,
+                    )
                 )
-            )
-        store.persist()
+            store.persist()
+            ctx["chunks_added"] = sum(r.chunks_added for r in results)
+            ctx["failures"] = sum(1 for r in results if not r.ok)
         return IngestResponse(results=results)
 
     @app.post("/query", response_model=QueryResponse)
     def query(request: QueryRequest):
         if not request.question.strip():
             raise HTTPException(status_code=400, detail="question must not be empty")
-        filters = {}
-        if request.source_path_filter:
-            filters["source_path"] = request.source_path_filter
-        if request.tags_filter:
-            filters["tags"] = request.tags_filter
-        answer = query_pipeline.answer(request.question, filters=filters or None)
+        with log_duration(logger, "query", question_len=len(request.question)) as ctx:
+            filters = {}
+            if request.source_path_filter:
+                filters["source_path"] = request.source_path_filter
+            if request.tags_filter:
+                filters["tags"] = request.tags_filter
+            answer = query_pipeline.answer(request.question, filters=filters or None)
+            ctx["sufficient_context"] = answer.sufficient_context
+            ctx["citation_count"] = len(answer.citations)
         return QueryResponse(
             answer=answer.text,
             sufficient_context=answer.sufficient_context,

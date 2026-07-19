@@ -69,6 +69,24 @@ def test_query_endpoint_returns_grounded_answer():
     assert len(body["citations"]) >= 1
 
 
+def test_query_endpoint_logs_structured_event(caplog):
+    import logging
+
+    client, store = _client()
+    client.post(
+        "/ingest",
+        files=[("files", ("note.txt", b"widgets are small testing devices.", "text/plain"))],
+    )
+    with caplog.at_level(logging.INFO, logger="rag.api"):
+        client.post("/query", json={"question": "what are widgets?"})
+
+    query_records = [r for r in caplog.records if getattr(r, "event", None) == "query"]
+    assert len(query_records) == 1
+    assert query_records[0].status == "ok"
+    assert query_records[0].duration_ms >= 0
+    assert query_records[0].sufficient_context is True
+
+
 def test_ingest_endpoint_attaches_tags():
     client, store = _client()
     client.post(
