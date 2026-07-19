@@ -24,3 +24,5 @@ class Settings(BaseSettings):
     query_cache_enabled: bool = False
     query_cache_ttl_seconds: int = 300
     query_cache_max_size: int = 1000
+
+    max_context_tokens: int = 6000

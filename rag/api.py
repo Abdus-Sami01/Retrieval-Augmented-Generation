@@ -101,6 +101,7 @@ def build_app(
             query_rewriter=query_rewriter,
             rerank_candidate_k=settings.rerank_candidate_k,
             cache=query_cache,
+            max_context_tokens=settings.max_context_tokens,
         )
 
     rate_limiter = RateLimiter(

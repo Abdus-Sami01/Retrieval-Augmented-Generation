@@ -383,3 +383,39 @@ def test_query_without_cache_calls_llm_every_time():
     query.answer("what are widgets?")
 
     assert llm.call_count == 2
+
+
+def _large_chunk(idx: int) -> Chunk:
+    return Chunk(
+        text="word " * 500,  # ~500 tokens
+        doc_id="d1",
+        chunk_index=idx,
+        source_path="a.txt",
+        section_path=None,
+        char_start=0,
+        char_end=10,
+    )
+
+
+def test_query_applies_max_context_tokens_budget():
+    store = FakeStore()
+    for i in range(5):
+        store.chunks.append(_large_chunk(i))
+    query = QueryPipeline(
+        embedder=FakeEmbedder(),
+        store=store,
+        llm=FakeLLM("Answer [1]."),
+        max_context_tokens=600,
+    )
+    answer = query.answer("what are widgets?")
+    assert answer.sufficient_context
+    assert len(answer.citations) < 5
+
+
+def test_query_without_max_context_tokens_keeps_all_citations():
+    store = FakeStore()
+    for i in range(5):
+        store.chunks.append(_large_chunk(i))
+    query = QueryPipeline(embedder=FakeEmbedder(), store=store, llm=FakeLLM("Answer [1]."), top_k=5)
+    answer = query.answer("what are widgets?")
+    assert len(answer.citations) == 5

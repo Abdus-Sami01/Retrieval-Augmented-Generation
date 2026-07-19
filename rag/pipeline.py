@@ -7,6 +7,7 @@ from rag.chunking import DocumentAwareChunker
 from rag.embedding.base import Embedder
 from rag.generation.base import LLMClient
 from rag.generation.prompt import NO_CONTEXT_MARKER, build_prompt
+from rag.generation.token_budget import fit_to_budget
 from rag.loaders import load_path
 from rag.models import Answer
 from rag.retrieval.hybrid import HybridRetriever
@@ -92,6 +93,7 @@ class QueryPipeline:
         query_rewriter: QueryRewriter | None = None,
         rerank_candidate_k: int = 20,
         cache: TTLCache | None = None,
+        max_context_tokens: int | None = None,
     ):
         """retriever, reranker, and query_rewriter are all optional, additive stages:
         with none set this behaves exactly like the original store.search()-only
@@ -115,6 +117,7 @@ class QueryPipeline:
         self.query_rewriter = query_rewriter
         self.rerank_candidate_k = rerank_candidate_k
         self.cache = cache
+        self.max_context_tokens = max_context_tokens
 
     def answer(self, question: str, filters: dict | None = None) -> Answer:
         if self.cache is not None:
@@ -147,6 +150,9 @@ class QueryPipeline:
 
         if not sufficient:
             return Answer(text=INSUFFICIENT_CONTEXT_MESSAGE, citations=[], sufficient_context=False)
+
+        if self.max_context_tokens is not None:
+            sufficient = fit_to_budget(sufficient, self.max_context_tokens)
 
         system_prompt, user_prompt = build_prompt(question, sufficient)
         raw_text = self.llm.complete(system_prompt, user_prompt)
