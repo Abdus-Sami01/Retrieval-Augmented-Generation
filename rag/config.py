@@ -18,3 +18,5 @@ class Settings(BaseSettings):
     use_query_rewriting: bool = False
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     rerank_candidate_k: int = 20
+
+    rate_limit_requests_per_minute: int = 60

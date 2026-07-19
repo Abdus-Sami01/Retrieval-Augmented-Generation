@@ -7,9 +7,13 @@ from rag.pipeline import IngestPipeline, QueryPipeline
 from tests.test_pipeline import EmptyStore, FakeEmbedder, FakeLLM, FakeStore
 
 
-def _client(store=None, llm_response="grounded answer [1]."):
+def _client(store=None, llm_response="grounded answer [1].", rate_limit_requests_per_minute=60):
     store = store or FakeStore()
-    settings = Settings(_env_file=None, groq_api_key="test-key")
+    settings = Settings(
+        _env_file=None,
+        groq_api_key="test-key",
+        rate_limit_requests_per_minute=rate_limit_requests_per_minute,
+    )
     ingest_pipeline = IngestPipeline(
         chunker=DocumentAwareChunker(chunk_size_tokens=400, overlap_tokens=60),
         embedder=FakeEmbedder(),
@@ -67,6 +71,23 @@ def test_query_endpoint_returns_grounded_answer():
     body = resp.json()
     assert body["sufficient_context"] is True
     assert len(body["citations"]) >= 1
+
+
+def test_query_endpoint_returns_429_after_rate_limit_exceeded():
+    client, _ = _client(rate_limit_requests_per_minute=1)
+    first = client.post("/query", json={"question": "what is x?"})
+    second = client.post("/query", json={"question": "what is x?"})
+    assert first.status_code != 429
+    assert second.status_code == 429
+
+
+def test_ingest_endpoint_returns_429_after_rate_limit_exceeded():
+    client, _ = _client(rate_limit_requests_per_minute=1)
+    files = [("files", ("note.txt", b"hello world, this is a real test document.", "text/plain"))]
+    first = client.post("/ingest", files=files)
+    second = client.post("/ingest", files=files)
+    assert first.status_code != 429
+    assert second.status_code == 429
 
 
 def test_query_endpoint_logs_structured_event(caplog):
