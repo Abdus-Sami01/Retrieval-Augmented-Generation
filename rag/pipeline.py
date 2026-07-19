@@ -10,6 +10,7 @@ from rag.generation.prompt import NO_CONTEXT_MARKER, build_prompt
 from rag.generation.token_budget import fit_to_budget
 from rag.loaders import load_path
 from rag.models import Answer
+from rag.pii import redact_pii
 from rag.retrieval.hybrid import HybridRetriever
 from rag.retrieval.keyword_index import KeywordIndex
 from rag.retrieval.query_rewriter import QueryRewriter
@@ -39,13 +40,18 @@ class IngestPipeline:
         embedder: Embedder,
         store: VectorStore,
         keyword_index: KeywordIndex | None = None,
+        redact_pii_on_ingest: bool = False,
     ):
         """keyword_index is optional: set it when hybrid retrieval is enabled so every
-        ingested chunk lands in both the dense store and the BM25 index."""
+        ingested chunk lands in both the dense store and the BM25 index.
+        redact_pii_on_ingest strips emails/SSNs/phone numbers from document text
+        before it is chunked, embedded, or stored - deployment-wide policy, not a
+        per-file choice, so it lives on the pipeline rather than as a call argument."""
         self.chunker = chunker
         self.embedder = embedder
         self.store = store
         self.keyword_index = keyword_index
+        self.redact_pii_on_ingest = redact_pii_on_ingest
 
     def ingest_file(
         self, path: str, display_name: str | None = None, tags: list[str] | None = None
@@ -57,6 +63,9 @@ class IngestPipeline:
 
         if display_name:
             document.source_path = display_name
+
+        if self.redact_pii_on_ingest:
+            document.text = redact_pii(document.text)
 
         chunks = self.chunker.chunk(document)
         if not chunks:

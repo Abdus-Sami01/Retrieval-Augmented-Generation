@@ -139,6 +139,34 @@ def test_ingest_file_success(tmp_path):
     assert store.count() == 1
 
 
+def test_ingest_file_redacts_pii_when_enabled(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("contact jane.doe@example.com or 555-123-4567 for support.", encoding="utf-8")
+    store = FakeStore()
+    pipeline = IngestPipeline(
+        chunker=DocumentAwareChunker(chunk_size_tokens=400, overlap_tokens=60),
+        embedder=FakeEmbedder(),
+        store=store,
+        redact_pii_on_ingest=True,
+    )
+    pipeline.ingest_file(str(f))
+    assert "jane.doe@example.com" not in store.chunks[0].text
+    assert "[EMAIL_REDACTED]" in store.chunks[0].text
+
+
+def test_ingest_file_keeps_pii_when_disabled(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("contact jane.doe@example.com or 555-123-4567 for support.", encoding="utf-8")
+    store = FakeStore()
+    pipeline = IngestPipeline(
+        chunker=DocumentAwareChunker(chunk_size_tokens=400, overlap_tokens=60),
+        embedder=FakeEmbedder(),
+        store=store,
+    )
+    pipeline.ingest_file(str(f))
+    assert "jane.doe@example.com" in store.chunks[0].text
+
+
 def test_ingest_file_attaches_tags_to_every_chunk(tmp_path):
     f = tmp_path / "a.txt"
     f.write_text("hello world, this is a test document with enough content.", encoding="utf-8")

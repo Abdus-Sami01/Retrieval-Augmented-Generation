@@ -88,7 +88,11 @@ def build_app(
         )
 
         ingest_pipeline = IngestPipeline(
-            chunker=chunker, embedder=embedder, store=store, keyword_index=keyword_index
+            chunker=chunker,
+            embedder=embedder,
+            store=store,
+            keyword_index=keyword_index,
+            redact_pii_on_ingest=settings.redact_pii_on_ingest,
         )
         query_pipeline = QueryPipeline(
             embedder=embedder,

@@ -26,3 +26,5 @@ class Settings(BaseSettings):
     query_cache_max_size: int = 1000
 
     max_context_tokens: int = 6000
+
+    redact_pii_on_ingest: bool = False
