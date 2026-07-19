@@ -5,6 +5,7 @@ import tempfile
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
+from rag.cache import TTLCache
 from rag.chunking import DocumentAwareChunker
 from rag.config import Settings
 from rag.embedding.sentence_transformer_embedder import SentenceTransformerEmbedder
@@ -80,6 +81,11 @@ def build_app(
 
         reranker = CrossEncoderReranker(model_name=settings.reranker_model) if settings.use_reranker else None
         query_rewriter = QueryRewriter(llm=llm) if settings.use_query_rewriting else None
+        query_cache = (
+            TTLCache(ttl_seconds=settings.query_cache_ttl_seconds, max_size=settings.query_cache_max_size)
+            if settings.query_cache_enabled
+            else None
+        )
 
         ingest_pipeline = IngestPipeline(
             chunker=chunker, embedder=embedder, store=store, keyword_index=keyword_index
@@ -94,6 +100,7 @@ def build_app(
             reranker=reranker,
             query_rewriter=query_rewriter,
             rerank_candidate_k=settings.rerank_candidate_k,
+            cache=query_cache,
         )
 
     rate_limiter = RateLimiter(

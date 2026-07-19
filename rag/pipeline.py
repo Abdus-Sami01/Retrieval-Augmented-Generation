@@ -1,5 +1,8 @@
+import hashlib
+import json
 from dataclasses import dataclass
 
+from rag.cache import TTLCache
 from rag.chunking import DocumentAwareChunker
 from rag.embedding.base import Embedder
 from rag.generation.base import LLMClient
@@ -13,6 +16,11 @@ from rag.retrieval.reranker_base import Reranker
 from rag.vectorstore.base import VectorStore
 
 INSUFFICIENT_CONTEXT_MESSAGE = "I don't have enough information in the indexed documents to answer that."
+
+
+def _cache_key(question: str, filters: dict | None) -> str:
+    payload = json.dumps({"question": question, "filters": filters or {}}, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -83,6 +91,7 @@ class QueryPipeline:
         reranker: Reranker | None = None,
         query_rewriter: QueryRewriter | None = None,
         rerank_candidate_k: int = 20,
+        cache: TTLCache | None = None,
     ):
         """retriever, reranker, and query_rewriter are all optional, additive stages:
         with none set this behaves exactly like the original store.search()-only
@@ -105,8 +114,22 @@ class QueryPipeline:
         self.reranker = reranker
         self.query_rewriter = query_rewriter
         self.rerank_candidate_k = rerank_candidate_k
+        self.cache = cache
 
     def answer(self, question: str, filters: dict | None = None) -> Answer:
+        if self.cache is not None:
+            cache_key = _cache_key(question, filters)
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        computed = self._answer_uncached(question, filters)
+
+        if self.cache is not None:
+            self.cache.set(cache_key, computed)
+        return computed
+
+    def _answer_uncached(self, question: str, filters: dict | None) -> Answer:
         retrieval_query = self.query_rewriter.rewrite(question) if self.query_rewriter else question
         query_vector = self.embedder.embed_query(retrieval_query)
 

@@ -1,3 +1,4 @@
+from rag.cache import TTLCache
 from rag.chunking import DocumentAwareChunker
 from rag.embedding.base import Embedder
 from rag.generation.base import LLMClient
@@ -60,8 +61,10 @@ class EmptyStore(FakeStore):
 class FakeLLM(LLMClient):
     def __init__(self, response: str):
         self._response = response
+        self.call_count = 0
 
     def complete(self, system_prompt, user_prompt):
+        self.call_count += 1
         return self._response
 
 
@@ -259,7 +262,7 @@ def test_query_returns_insufficient_when_llm_signals_no_context(tmp_path):
     assert answer.text == INSUFFICIENT_CONTEXT_MESSAGE
 
 
-def _widget_chunk():
+def _widget_chunk(tags=None):
     return Chunk(
         text="widgets are small mechanical devices",
         doc_id="d1",
@@ -268,6 +271,7 @@ def _widget_chunk():
         section_path=None,
         char_start=0,
         char_end=10,
+        tags=tags or [],
     )
 
 
@@ -342,3 +346,40 @@ def test_query_without_reranker_or_retriever_behaves_as_before():
     answer = query.answer("what are widgets?")
     assert answer.sufficient_context
     assert len(answer.citations) == 1
+
+
+def test_query_cache_hit_skips_llm_call():
+    store = FakeStore()
+    store.chunks.append(_widget_chunk())
+    llm = FakeLLM("Widgets are devices [1].")
+    query = QueryPipeline(embedder=FakeEmbedder(), store=store, llm=llm, cache=TTLCache(ttl_seconds=60))
+
+    first = query.answer("what are widgets?")
+    second = query.answer("what are widgets?")
+
+    assert llm.call_count == 1
+    assert second.text == first.text
+
+
+def test_query_cache_miss_for_different_filters():
+    store = FakeStore()
+    store.chunks.append(_widget_chunk(tags=["legal"]))
+    llm = FakeLLM("Widgets are devices [1].")
+    query = QueryPipeline(embedder=FakeEmbedder(), store=store, llm=llm, cache=TTLCache(ttl_seconds=60))
+
+    query.answer("what are widgets?", filters=None)
+    query.answer("what are widgets?", filters={"tags": ["legal"]})
+
+    assert llm.call_count == 2
+
+
+def test_query_without_cache_calls_llm_every_time():
+    store = FakeStore()
+    store.chunks.append(_widget_chunk())
+    llm = FakeLLM("Widgets are devices [1].")
+    query = QueryPipeline(embedder=FakeEmbedder(), store=store, llm=llm)
+
+    query.answer("what are widgets?")
+    query.answer("what are widgets?")
+
+    assert llm.call_count == 2

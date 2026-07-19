@@ -20,3 +20,7 @@ class Settings(BaseSettings):
     rerank_candidate_k: int = 20
 
     rate_limit_requests_per_minute: int = 60
+
+    query_cache_enabled: bool = False
+    query_cache_ttl_seconds: int = 300
+    query_cache_max_size: int = 1000

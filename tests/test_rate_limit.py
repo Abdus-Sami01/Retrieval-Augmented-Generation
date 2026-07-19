@@ -10,12 +10,14 @@ def test_token_bucket_allows_up_to_capacity():
 
 
 def test_token_bucket_refills_over_time():
-    bucket = TokenBucket(capacity=1, refill_per_second=1000)  # fast refill for a deterministic test
+    # Windows scheduler timer resolution is coarse, so use a wide margin: 200/sec
+    # refill over a 100ms sleep should yield ~20 tokens even with significant slop.
+    bucket = TokenBucket(capacity=1, refill_per_second=200)
     assert bucket.try_consume() is True
     assert bucket.try_consume() is False
     import time
 
-    time.sleep(0.01)  # 1000/sec refill => ~10 tokens available after 10ms
+    time.sleep(0.1)
     assert bucket.try_consume() is True
 
 
