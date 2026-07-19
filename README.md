@@ -74,8 +74,21 @@ If no retrieved chunk clears `RETRIEVAL_MIN_SCORE`, or the LLM itself signals `N
 - Opt-in PII redaction (email/SSN/phone) at ingest time (`rag/pii.py`).
 - Dockerfile + docker-compose for API + UI.
 
+## Evaluation
+
+Rather than duplicate faithfulness/sufficiency scoring, this repo imports the two sibling repos directly (`rag/evaluation/external_repos.py`, sys.path-based - neither is pip-installable) and runs them against rag-platform's own answers:
+
+- `rag/evaluation/faithfulness.py` - reuses `rag-faithfulness-harness`'s claim-extraction + NLI entailment scoring on real `Answer` objects.
+- `rag/evaluation/sufficiency_crosscheck.py` - reuses `retrieval-verification-gate`'s independent sufficiency decision as a second opinion, always against a fresh plain-cosine retrieval (gate's threshold is calibrated for that scale, not RRF/reranker scores).
+- `rag/evaluation/runner.py` + `eval/golden_queries.json` (14 hand-written queries against `corpus_sample/`, 10 answerable + 4 out-of-scope) compute sufficiency accuracy, retrieval hit-rate, and mean faithfulness rate.
+- `python -m rag.evaluation.cli` runs the golden set through **baseline** (plain dense retrieval) and **full** (hybrid + reranker + query-rewriting) configs and fails (exit 1) if full regresses vs baseline on sufficiency accuracy or retrieval hit-rate - the actual "beat the baseline" gate.
+
+**Real run result** (2026-07, `llama-3.3-70b-versatile`): both configs hit `sufficiency_accuracy: 1.0` and `retrieval_hit_rate: 1.0` on the 14-query golden set - full config passes the gate cleanly.
+
+`mean_faithfulness_rate` came back low (0.18 baseline / 0.20 full) despite the answers looking well-grounded and correctly-cited in every live spot-check this repo was built and tested against. Not yet root-caused with fresh per-query data (blocked on Groq's free-tier daily token cap mid-investigation - `RateLimitError: tokens per day` - `groq_client.py`'s retry logic correctly surfaced this rather than hiding it). Leading hypothesis: `harness.faithfulness.check_faithfulness` requires a single retrieved chunk to strictly NLI-entail a claim; real LLM answers paraphrase and sometimes synthesize across multiple chunks, which general-purpose entailment models often score as "neutral" rather than "entailment" even when the claim is genuinely supported. This is a known category of false negative in NLI-based faithfulness metrics, not necessarily evidence of real hallucination - but it's reported as measured, not adjusted away, and is an open item: rerun `python -m rag.evaluation.cli --verbose` once quota resets and inspect `per_query` to confirm or rule this out.
+
 ## Scope
 
-This is the core ingest/retrieve/generate pipeline plus retrieval-quality and hardening layers. A dedicated eval harness and agentic/multi-hop retrieval are out of scope here and land as later, separate builds in this repo.
+This is the core ingest/retrieve/generate pipeline plus retrieval-quality, hardening, and evaluation layers. Agentic/multi-hop retrieval is out of scope here and lands as a later, separate build in this repo.
 
-Two related repos in this workspace cover eval/safety concerns this repo doesn't: `../rag-faithfulness-harness` (NLI-based faithfulness scoring) and `../retrieval-verification-gate` (sufficiency-gated retrieval). This repo is the general-purpose pipeline; those are narrow research artifacts.
+Two related repos in this workspace cover eval/safety concerns this repo doesn't duplicate: `../rag-faithfulness-harness` (NLI-based faithfulness scoring) and `../retrieval-verification-gate` (sufficiency-gated retrieval) - both are reused directly, see Evaluation above.
