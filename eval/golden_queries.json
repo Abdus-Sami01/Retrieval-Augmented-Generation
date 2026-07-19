@@ -1,0 +1,72 @@
+[
+  {
+    "query": "What does the RAG faithfulness harness check about generated answers?",
+    "expected_source_substring": "rag-faithfulness-harness_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "What NLI model does the faithfulness harness use for entailment checking?",
+    "expected_source_substring": "rag-faithfulness-harness_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "What does the retrieval-verification gate do when retrieval is insufficient?",
+    "expected_source_substring": "retrieval-verification-gate_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "What two independent signals does the retrieval-verification gate use to decide sufficiency?",
+    "expected_source_substring": "retrieval-verification-gate_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "What are the three components of the RLAT reading tutor system?",
+    "expected_source_substring": "RLAT_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "Why can't RLAT's prosody model be trained yet?",
+    "expected_source_substring": "RLAT_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "What are the 8 dimensions scored by VitalsAI's BNDI engine?",
+    "expected_source_substring": "vitals-ai_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "Does the VitalsAI Phase 1 prototype require any API keys to run?",
+    "expected_source_substring": "vitals-ai_README.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "What is the first Tier 1 item in the GenAI project list?",
+    "expected_source_substring": "GenAI_Projects.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "Which three RAG projects are recommended to build together?",
+    "expected_source_substring": "RAG_Projects.md",
+    "expected_sufficient": true
+  },
+  {
+    "query": "What is the population of Japan?",
+    "expected_source_substring": null,
+    "expected_sufficient": false
+  },
+  {
+    "query": "What is the best recipe for chocolate cake?",
+    "expected_source_substring": null,
+    "expected_sufficient": false
+  },
+  {
+    "query": "Who won the 2022 FIFA World Cup?",
+    "expected_source_substring": null,
+    "expected_sufficient": false
+  },
+  {
+    "query": "What programming language is the Linux kernel written in?",
+    "expected_source_substring": null,
+    "expected_sufficient": false
+  }
+]
