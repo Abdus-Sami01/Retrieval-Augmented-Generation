@@ -9,6 +9,10 @@ from rag.config import Settings
 from rag.embedding.sentence_transformer_embedder import SentenceTransformerEmbedder
 from rag.generation.groq_client import GroqClient
 from rag.pipeline import IngestPipeline, QueryPipeline
+from rag.retrieval.cross_encoder_reranker import CrossEncoderReranker
+from rag.retrieval.hybrid import HybridRetriever
+from rag.retrieval.keyword_index import KeywordIndex
+from rag.retrieval.query_rewriter import QueryRewriter
 from rag.vectorstore.faiss_store import FaissVectorStore
 
 
@@ -61,13 +65,29 @@ def build_app(
         )
         llm = GroqClient(api_key=settings.groq_api_key, model=settings.groq_model)
 
-        ingest_pipeline = IngestPipeline(chunker=chunker, embedder=embedder, store=store)
+        keyword_index = None
+        retriever = None
+        if settings.use_hybrid_retrieval:
+            keyword_index = KeywordIndex(data_dir=settings.data_dir)
+            keyword_index.load()
+            retriever = HybridRetriever(dense_store=store, keyword_index=keyword_index)
+
+        reranker = CrossEncoderReranker(model_name=settings.reranker_model) if settings.use_reranker else None
+        query_rewriter = QueryRewriter(llm=llm) if settings.use_query_rewriting else None
+
+        ingest_pipeline = IngestPipeline(
+            chunker=chunker, embedder=embedder, store=store, keyword_index=keyword_index
+        )
         query_pipeline = QueryPipeline(
             embedder=embedder,
             store=store,
             llm=llm,
             top_k=settings.retrieval_top_k,
             min_score=settings.retrieval_min_score,
+            retriever=retriever,
+            reranker=reranker,
+            query_rewriter=query_rewriter,
+            rerank_candidate_k=settings.rerank_candidate_k,
         )
 
     app = FastAPI(title="rag-platform")

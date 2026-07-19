@@ -11,6 +11,7 @@ Every swappable part (embedder, vector store, LLM) sits behind an ABC in `rag/*/
 - Generation: Groq API, `llama-3.3-70b-versatile`, strict "answer only from context, cite [n], or say not found" prompting (`rag/generation/prompt.py`).
 - API: FastAPI (`rag/api.py`) - `/health`, `POST /ingest`, `POST /query`.
 - UI: Gradio (`rag/ui.py`), thin client over the API.
+- Retrieval quality (opt-in, all off by default): BM25 keyword index (`rag/retrieval/keyword_index.py`), hybrid dense+BM25 retrieval via reciprocal rank fusion (`rag/retrieval/hybrid.py`), cross-encoder reranking (`rag/retrieval/cross_encoder_reranker.py`), LLM-based query rewriting for vague questions (`rag/retrieval/query_rewriter.py`).
 
 ## Setup
 

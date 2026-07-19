@@ -12,3 +12,9 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 5
     retrieval_min_score: float = 0.35
     data_dir: str = "data"
+
+    use_hybrid_retrieval: bool = False
+    use_reranker: bool = False
+    use_query_rewriting: bool = False
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rerank_candidate_k: int = 20

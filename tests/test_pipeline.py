@@ -2,7 +2,7 @@ from rag.chunking import DocumentAwareChunker
 from rag.embedding.base import Embedder
 from rag.generation.base import LLMClient
 from rag.generation.prompt import NO_CONTEXT_MARKER
-from rag.models import RetrievedChunk
+from rag.models import Chunk, RetrievedChunk
 from rag.pipeline import INSUFFICIENT_CONTEXT_MESSAGE, IngestPipeline, QueryPipeline
 from rag.vectorstore.base import VectorStore
 
@@ -63,6 +63,62 @@ class FakeLLM(LLMClient):
 
     def complete(self, system_prompt, user_prompt):
         return self._response
+
+
+class FakeRetriever:
+    def __init__(self, results):
+        self._results = results
+        self.last_call = None
+
+    def search(self, query_text, query_vector, top_k, filters=None):
+        self.last_call = {"query_text": query_text, "top_k": top_k, "filters": filters}
+        return self._results[:top_k]
+
+
+class FakeReranker:
+    def __init__(self, rescored):
+        self._rescored = rescored
+        self.last_call = None
+
+    def rerank(self, query, candidates, top_k):
+        self.last_call = {"query": query, "candidates": candidates, "top_k": top_k}
+        return self._rescored[:top_k]
+
+
+class FakeQueryRewriter:
+    def __init__(self, rewritten: str):
+        self._rewritten = rewritten
+
+    def rewrite(self, query):
+        return self._rewritten
+
+
+class FakeKeywordIndex:
+    def __init__(self):
+        self.added_chunks = []
+        self.persisted = False
+
+    def add(self, chunks):
+        self.added_chunks.extend(chunks)
+
+    def persist(self):
+        self.persisted = True
+
+
+def test_ingest_file_adds_to_keyword_index_when_present(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello world, this is a test document with enough content.", encoding="utf-8")
+    store = FakeStore()
+    keyword_index = FakeKeywordIndex()
+    pipeline = IngestPipeline(
+        chunker=DocumentAwareChunker(chunk_size_tokens=400, overlap_tokens=60),
+        embedder=FakeEmbedder(),
+        store=store,
+        keyword_index=keyword_index,
+    )
+    pipeline.ingest_files([str(f)])
+    assert len(keyword_index.added_chunks) == 1
+    assert keyword_index.persisted
 
 
 def test_ingest_file_success(tmp_path):
@@ -201,3 +257,88 @@ def test_query_returns_insufficient_when_llm_signals_no_context(tmp_path):
     answer = query.answer("what is quantum computing?")
     assert not answer.sufficient_context
     assert answer.text == INSUFFICIENT_CONTEXT_MESSAGE
+
+
+def _widget_chunk():
+    return Chunk(
+        text="widgets are small mechanical devices",
+        doc_id="d1",
+        chunk_index=0,
+        source_path="a.txt",
+        section_path=None,
+        char_start=0,
+        char_end=10,
+    )
+
+
+def test_query_uses_retriever_when_provided():
+    retriever = FakeRetriever([RetrievedChunk(chunk=_widget_chunk(), score=0.9)])
+    query = QueryPipeline(
+        embedder=FakeEmbedder(),
+        store=FakeStore(),
+        llm=FakeLLM("Widgets are devices [1]."),
+        min_score=0.35,
+        retriever=retriever,
+    )
+    answer = query.answer("what are widgets?", filters={"tags": ["legal"]})
+    assert answer.sufficient_context
+    assert retriever.last_call["filters"] == {"tags": ["legal"]}
+
+
+def test_query_with_reranker_ignores_min_score_on_reranker_output():
+    # Regression: cross-encoder sigmoid scores are not on cosine's 0..1 scale in any
+    # reliable way (measured live: ~0.02 for a genuinely correct top match), so
+    # min_score must not be applied to reranker output - only to the plain-cosine path.
+    store = FakeStore()
+    store.chunks.append(_widget_chunk())
+    reranker = FakeReranker([RetrievedChunk(chunk=_widget_chunk(), score=0.05)])
+    query = QueryPipeline(
+        embedder=FakeEmbedder(),
+        store=store,
+        llm=FakeLLM("Widgets are devices [1]."),
+        min_score=0.35,
+        reranker=reranker,
+    )
+    answer = query.answer("what are widgets?")
+    assert answer.sufficient_context
+
+
+def test_query_with_reranker_returning_empty_list_is_insufficient():
+    store = FakeStore()
+    store.chunks.append(_widget_chunk())
+    reranker = FakeReranker([])
+    query = QueryPipeline(
+        embedder=FakeEmbedder(),
+        store=store,
+        llm=FakeLLM("Widgets are devices [1]."),
+        min_score=0.35,
+        reranker=reranker,
+    )
+    answer = query.answer("what are widgets?")
+    assert not answer.sufficient_context
+
+
+def test_query_rewriter_used_for_retrieval_not_final_prompt():
+    store = FakeStore()
+    store.chunks.append(_widget_chunk())
+    rewriter = FakeQueryRewriter("what are small mechanical devices called?")
+    query = QueryPipeline(
+        embedder=FakeEmbedder(),
+        store=store,
+        llm=FakeLLM("Widgets are devices [1]."),
+        min_score=0.35,
+        query_rewriter=rewriter,
+    )
+    answer = query.answer("wut r widgets")
+    assert answer.sufficient_context
+
+
+def test_query_without_reranker_or_retriever_behaves_as_before():
+    # Backward-compat guard: no new kwargs set should reproduce the original,
+    # plain store.search()-only code path exactly.
+    store = FakeStore()
+    store.chunks.append(_widget_chunk())
+    query = QueryPipeline(embedder=FakeEmbedder(), store=store, llm=FakeLLM("Widgets are devices [1]."))
+    answer = query.answer("what are widgets?")
+    assert answer.sufficient_context
+    assert len(answer.citations) == 1
