@@ -119,3 +119,27 @@ def test_search_works_from_a_different_thread_than_construction(tmp_path):
 
     assert len(results) == 1
     assert results[0].chunk.chunk_index == 0
+
+
+def test_close_releases_sqlite_connection_so_dir_can_be_removed(tmp_path):
+    # Regression: an ephemeral store (e.g. in the eval CLI's tempfile.TemporaryDirectory)
+    # left its sqlite connection open, so Windows refused to delete data_dir afterward
+    # (unlike POSIX, Windows locks open files against deletion).
+    store = FaissVectorStore(dimension=3, data_dir=str(tmp_path))
+    store.add([_chunk(0)], [[1.0, 0.0, 0.0]])
+    store.close()
+
+    import shutil
+
+    shutil.rmtree(tmp_path)  # must not raise PermissionError
+    assert not tmp_path.exists()
+
+
+def test_context_manager_closes_on_exit(tmp_path):
+    with FaissVectorStore(dimension=3, data_dir=str(tmp_path)) as store:
+        store.add([_chunk(0)], [[1.0, 0.0, 0.0]])
+
+    import shutil
+
+    shutil.rmtree(tmp_path)
+    assert not tmp_path.exists()

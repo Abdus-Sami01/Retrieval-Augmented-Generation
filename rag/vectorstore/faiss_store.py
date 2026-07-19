@@ -145,3 +145,15 @@ class FaissVectorStore(VectorStore):
                 return
             self._index = faiss.read_index(str(self.index_path))
             self.dimension = self._index.d
+
+    def close(self) -> None:
+        """Releases the sqlite connection. Required before deleting data_dir on Windows,
+        which (unlike POSIX) refuses to unlink a file still open by the process."""
+        with self._lock:
+            self._conn.close()
+
+    def __enter__(self) -> "FaissVectorStore":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()

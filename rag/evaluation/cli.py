@@ -17,9 +17,12 @@ FULL_OVERRIDES = {"use_hybrid_retrieval": True, "use_reranker": True, "use_query
 
 def _run_config(overrides: dict, golden_queries: list, data_dir: str, score_faithfulness: bool) -> EvalReport:
     settings = Settings(data_dir=data_dir, **overrides)
-    ingest_pipeline, query_pipeline, _ = build_pipelines(settings)
-    ingest_pipeline.ingest_files([str(p) for p in CORPUS_DIR.glob("*.md")])
-    return run_eval(query_pipeline, golden_queries, score_faithfulness=score_faithfulness)
+    ingest_pipeline, query_pipeline, store = build_pipelines(settings)
+    try:
+        ingest_pipeline.ingest_files([str(p) for p in CORPUS_DIR.glob("*.md")])
+        return run_eval(query_pipeline, golden_queries, score_faithfulness=score_faithfulness)
+    finally:
+        store.close()
 
 
 def _report_summary(name: str, report: EvalReport) -> dict:
